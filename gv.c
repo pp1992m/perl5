@@ -2215,13 +2215,6 @@ S_gv_magicalize(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len,
 		hv_magic(hv, NULL, PERL_MAGIC_hints);
 	    }
 	    goto magicalize;
-	case '[':		/* $[ */
-	    if ((sv_type == SVt_PV || sv_type == SVt_PVGV)
-	     && FEATURE_ARYBASE_IS_ENABLED) {
-                require_tie_mod_s(gv,'[',"arybase",0);
-	    }
-	    else goto magicalize;
-            break;
 	case '\023':	/* $^S */
 	ro_magicalize:
 	    SvREADONLY_on(GvSVn(gv));
@@ -2240,6 +2233,7 @@ S_gv_magicalize(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len,
 	case '/':		/* $/ */
 	case '|':		/* $| */
 	case '$':		/* $$ */
+	case '[':		/* $[ */
 	case '\001':	/* $^A */
 	case '\003':	/* $^C */
 	case '\004':	/* $^D */
@@ -2326,9 +2320,6 @@ S_maybe_multimagic_gv(pTHX_ GV *gv, const char *name, const svtype sv_type)
     }
     if (sv_type==SVt_PV || sv_type==SVt_PVGV) {
       switch (*name) {
-      case '[':
-          require_tie_mod_s(gv,'[',"arybase",0);
-          break;
 #ifdef PERL_SAWAMPERSAND
       case '`':
           PL_sawampersand |= SAWAMPERSAND_LEFT;

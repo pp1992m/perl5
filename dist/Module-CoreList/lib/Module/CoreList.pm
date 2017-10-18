@@ -16382,6 +16382,7 @@ sub is_core
         changed => {
         },
         removed => {
+            arybase => '1',
         }
     },
 );

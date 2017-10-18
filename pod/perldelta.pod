@@ -26,6 +26,13 @@ But to avoid breaking code unnecessarily, most instances that issued a
 deprecation warning, remain legal and now have a non-deprecation warning
 raised.  See L<perldeprecation/Unescaped left braces in regular expressions>.
 
+=head2 Assigning non-zero to C<$[> is fatal
+
+Setting L<< C<$[>|perlvar/$[ >> to a non-zero value has been deprecated since
+Perl 5.12 and now throws a fatal error.
+See L<<< perldeprecation/Assigning non-zero to C<< $[ >> is fatal >>>.
+
+
 =head1 Performance Enhancements
 
 =over 4
