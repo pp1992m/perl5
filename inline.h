@@ -988,6 +988,78 @@ Perl_is_utf8_string_loclen(const U8 *s, STRLEN len, const U8 **ep, STRLEN *el)
 
 /*
 
+=for apidoc Am|STRLEN|isUTF8_CHAR|const U8 *s|const U8 *e
+
+Evaluates to non-zero if the first few bytes of the string starting at C<s> and
+looking no further than S<C<e - 1>> are well-formed UTF-8, as extended by Perl,
+that represents some code point; otherwise it evaluates to 0.  If non-zero, the
+value gives how many bytes starting at C<s> comprise the code point's
+representation.  Any bytes remaining before C<e>, but beyond the ones needed to
+form the first code point in C<s>, are not examined.
+
+The code point can be any that will fit in a UV on this machine, using Perl's
+extension to official UTF-8 to represent those higher than the Unicode maximum
+of 0x10FFFF.  That means that this macro is used to efficiently decide if the
+next few bytes in C<s> is legal UTF-8 for a single character.
+
+Use C<L</isSTRICT_UTF8_CHAR>> to restrict the acceptable code points to those
+defined by Unicode to be fully interchangeable across applications;
+C<L</isC9_STRICT_UTF8_CHAR>> to use the L<Unicode Corrigendum
+#9|http://www.unicode.org/versions/corrigendum9.html> definition of allowable
+code points; and C<L</isUTF8_CHAR_flags>> for a more customized definition.
+
+Use C<L</is_utf8_string>>, C<L</is_utf8_string_loc>>, and
+C<L</is_utf8_string_loclen>> to check entire strings.
+
+Note that it is deprecated to use code points higher than what will fit in an
+IV.  This macro does not raise any warnings for such code points, treating them
+as valid.
+
+Note also that a UTF-8 INVARIANT character (i.e. ASCII on non-EBCDIC machines)
+is a valid UTF-8 character.
+
+=cut
+*/
+
+PERL_STATIC_INLINE Size_t
+S_isUTF8_CHAR(const U8 * const s0, const U8 * const e)
+{
+    const U8 * s = s0;
+    UV state = 0;
+
+    PERL_ARGS_ASSERT_ISUTF8_CHAR;
+
+    /* This dfa is fast.  If it accepts the input, it was for a well-formed,
+     * code point, which can be returned immediately.  Otherwise, it is either
+     * malformed, or for the start byte FF which the dfa doesn't handle (except
+     * on 32-bit ASCII platforms where it trivially is an error).  Call a
+     * helper function for the other platforms. */
+
+    while (s < e && LIKELY(state != 1)) {
+        state = perl_extended_utf8_dfa_tab[256
+                                         + state
+                                         + perl_extended_utf8_dfa_tab[*s]];
+        if (state != 0) {
+            s++;
+            continue;
+        }
+
+        return s - s0 + 1;
+    }
+
+#if defined(UV_IS_QUAD) || defined(EBCDIC)
+
+    if (NATIVE_UTF8_TO_I8(*s0) == 0xFF && e - s0 >= UTF8_MAXBYTES) {
+       return _is_utf8_char_helper(s0, e, 0);
+    }
+
+#endif
+
+    return 0;
+}
+
+/*
+
 =for apidoc is_strict_utf8_string_loc
 
 Like C<L</is_strict_utf8_string>> but stores the location of the failure (in the
