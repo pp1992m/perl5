@@ -707,6 +707,122 @@ $num_test_files = 10 if $num_test_files > 10;
 my $tested_CHECK_ONLY = 0;
 
 my $test_count = -1;
+
+# By setting this environment variable to this particular value, we test
+# essentially all combinations of potential UTF-8, so that can get a
+# comprehensive test of the decoding routine.  This test assumes the routine
+# that does the translation from code point to UTF-8 is working.  An assert
+# can be used in the routine to make sure that the dfa is working precisely
+# correctly, and any flaws in it aren't being masked by the remainder of the
+# function.
+if ($::TEST_CHUNK == 0
+&& $ENV{PERL_DEBUG_FULL_TEST}
+&& $ENV{PERL_DEBUG_FULL_TEST} == 97)
+{
+    my @bytes = (   0,  # Placeholder to signify to use an empty string ""
+                0x41,  # We assume that all the ASCII characters are properly in
+                        # the same class, so this is an exemplar character
+                0x80 .. 0xFF   # But test every non-ASCII individually
+                );
+    for my $byte1 (@bytes) {
+        for my $byte2 (@bytes) {
+            last if $byte2 && ! $byte1;      # Don't test empty preceding byte
+
+            last if $byte2 && $byte1 < 0xC0; # No need to test more than a
+                                             # single byte unless start byte
+                                             # indicates those.
+
+            for my $byte3 (@bytes) {
+                last if $byte3 && ! $byte2;
+                last if $byte3 && $byte1 < 0xE0;    # Only test 3 bytes for
+                                                    # 3-byte start byte
+
+                # If the preceding byte is a start byte, it should fail, and
+                # there is no need to test illegal bytes that follow.
+                # Instead, limit ourselves to just a few legal bytes that
+                # could follow.  This cuts down tremendously on the number of
+                # tests executed.
+                next if $byte2 >= 0xC0
+                     && $byte3 >= 0x80
+                     && ($byte3 & 0x8F) != 0x80;
+
+                for my $byte4 (@bytes) {
+                    last if $byte4 && ! $byte3;
+                    last if $byte4 && $byte1 < 0xF0;  # Only test 4 bytes for
+                                                      # 4 byte strings
+
+                    # Like for byte 3, we limit things that come after a
+                    # mispositioned start-byte to just a few things that
+                    # otherwise would be legal
+                    next if ($byte4 >= 0x80 && ($byte4 & 0x8F) != 0x80)
+                         && ($byte2 >= 0xC0 || $byte3 >= 0xC0);
+
+                    # Above max legal, just do one example test
+                    last if $byte1 > 0xF4
+                        && ($byte2 > 0x80 || $byte3 > 0x80 || $byte4 > 0x80);
+
+
+                    my $string = "";
+                    $string .= chr $byte1 if $byte1;
+                    $string .= chr $byte2 if $byte2;
+                    $string .= chr $byte3 if $byte3;
+                    $string .= chr $byte4 if $byte4;
+
+                    my $length = length $string;
+                    next unless $length;
+
+                    my $ret = test_utf8n_to_uvchr_msgs($string, $length,
+                                             $::UTF8_WARN_ILLEGAL_INTERCHANGE);
+
+                    if (test_isUTF8_CHAR($string, $length)) {
+
+                        # Here, is legal UTF-8.  Verify that it returned the
+                        # correct code point, and if so, that it correctly
+                        # classifies the result.
+                        my $cp = $ret->[0];
+                        my $reverse_ret = test_uvchr_to_utf8_flags($cp, 0);
+                        if (is ($string, $reverse_ret, "utf8n_to_uvchr_msgs("
+                                                     . display_bytes($string)
+                                                     . ") returns correct uv=0x"
+                                                     . sprintf ("%x", $cp)))
+                        {
+                            if ($cp >= 0xD800 && $cp <= 0xDFFF) {
+                                is ($ret->[2], $::UTF8_GOT_SURROGATE,
+                                    sprintf "Surrogate U+%x was correctly"
+                                          . " flagged as such", $cp);
+                            }
+                            elsif ($cp > 0x10FFFF) {
+                                is ($ret->[2], $::UTF8_GOT_SUPER,
+                                    sprintf "Non-unicode 0x%X was correctly"
+                                          . " flagged as such", $cp);
+                            }
+                            elsif (($cp & 0xFFFE) == 0xFFFE
+                                || ($cp >= 0xFDD0 && $cp <= 0xFDEF))
+                            {
+                                is ($ret->[2], $::UTF8_GOT_NONCHAR,
+                                     sprintf "Non-character U+%x was correctly"
+                                           . " flagged as such", $cp);
+                            }
+                            else {
+                                is ($ret->[2], 0,
+                                    sprintf "Regular code point U+%X was not"
+                                          . " flagged. %s",
+                                          $cp, flags_to_text($ret->[2],
+                                                        \@utf8n_flags_to_text));
+                            }
+                        }
+                    }
+                    else {
+                        is ($ret->[0], 0, "utf8n_to_uvchr_msgs("
+                                         . display_bytes($string)
+                                         . ") correctly returns error");
+                    }
+                }
+            }
+        }
+    }
+}
+
 foreach my $test (@tests) {
   $test_count++;
   next if $test_count % $num_test_files != $::TEST_CHUNK;
