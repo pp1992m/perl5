@@ -1,6 +1,7 @@
 use v5.16.0;
 use strict;
 use warnings;
+use integer;
 
 BEGIN { unshift @INC, '.' }
 
@@ -17,12 +18,33 @@ sub output_table ($$;$) {
     my $table_ref = shift;
     my $name = shift;
 
-    # Tables in hex easier to debug, but don't fit into 80 columns
-    my $print_in_hex = shift // 1;
+    # 0 => print in decimal
+    # 1 => print in hex (translates code point to code point)
+    # >= 2 => is a dfa table, like http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
+    #      The number is how many columns in the part after the code point
+    #      portion.
+    #
+    # code point tables in hex areasier to debug, but don't fit into 80
+    # columns
+    my $type = shift // 1;
 
-    die "Requres 256 entries in table $name, got @$table_ref" if @$table_ref != 256;
+    my $print_in_hex = $type == 1;
+    my $is_dfa = ($type >= 2) ? $type : 0;
+    my $columns_after_256;
 
-    my $declaration = "EXTCONST U8 $name\[\]";
+    die "Requres 256 entries in table $name, got @$table_ref"
+                                if ! $is_dfa && @$table_ref != 256;
+    if (! $is_dfa) {
+        die "Requres 256 entries in table $name, got @$table_ref"
+                                                        if @$table_ref != 256;
+    }
+    else {
+        $columns_after_256 = $is_dfa;
+    }
+
+    my $TYPE = 'U8';
+    $TYPE = 'U16' if grep { $_ > 255 } @$table_ref;
+    my $declaration = "EXTCONST $TYPE $name\[\]";
     print $out_fh <<EOF;
 #  ifndef DOINIT
 #    $declaration;
@@ -32,7 +54,8 @@ EOF
 
     my $column_numbers= "/*_0   _1   _2   _3   _4   _5   _6   _7   _8   _9   _A   _B   _C   _D   _E  _F*/\n";
     print $out_fh $column_numbers if $print_in_hex;
-    for my $i (0 .. 255) {
+    my $count = @$table_ref;
+    for my $i (0 .. $count - 1) {
         if ($print_in_hex) {
             # No row headings, so will fit in 80 cols.
             #printf $out_fh "/* %X_ */ ", $i / 16 if $i % 16 == 0;
@@ -41,10 +64,22 @@ EOF
         else {
             printf $out_fh "%4d", $table_ref->[$i];
         }
-        print $out_fh ",", if $i < 255;
-        #print $out_fh ($i < 255) ? "," : " ";
+        print $out_fh ",", if $i < $count -1;
+        #print $out_fh ($i < $count -1) ? "," : " ";
         #printf $out_fh " /* %X_ */", $i / 16 if $print_in_hex && $i % 16 == 15;
-        print $out_fh "\n" if $i % 16 == 15;
+        if ($is_dfa) {
+            if ($i <= 255) {
+                printf $out_fh " /*%02X-%02X*/\n", $i-15, $i if $i % 16 == 15;
+            }
+            elsif (($i - 256) % $columns_after_256 == $columns_after_256 - 1)
+            {
+                my $node = ($i - 256) / $columns_after_256;
+                printf $out_fh " /*N%d=%d*/\n", $node, $i - 255 - $columns_after_256;
+            }
+        }
+        else {
+            print $out_fh "\n" if $i % 16 == 15;
+        }
     }
     print $out_fh $column_numbers if $print_in_hex;
     print $out_fh "};\n#  endif\n\n";
