@@ -1145,7 +1145,7 @@ Perl_grok_atoUV(const char *pv, UV *valptr, const char** endptr)
     return TRUE;
 }
 
-#ifndef USE_QUADMATH
+#ifndef Perl_strtod
 STATIC NV
 S_mulexp10(NV value, I32 exponent)
 {
@@ -1241,7 +1241,7 @@ S_mulexp10(NV value, I32 exponent)
     }
     return negative ? value / result : value * result;
 }
-#endif /* #ifndef USE_QUADMATH */
+#endif /* #ifndef Perl_strtod */
 
 NV
 Perl_my_atof(pTHX_ const char* s)
@@ -1252,7 +1252,7 @@ Perl_my_atof(pTHX_ const char* s)
 
     PERL_ARGS_ASSERT_MY_ATOF;
 
-#ifdef USE_QUADMATH
+#ifdef Perl_strtod
 
     my_atof2(s, &x);
 
@@ -1402,13 +1402,13 @@ Perl_my_atof3(pTHX_ const char* orig, NV* value, STRLEN len)
 {
     const char* s = orig;
     NV result[3] = {0.0, 0.0, 0.0};
-#if defined(USE_PERL_ATOF) || defined(USE_QUADMATH)
+#if defined(USE_PERL_ATOF) || defined(Perl_strtod)
     const char* send = s + ((len != 0)
                            ? len
                            : strlen(orig)); /* one past the last */
     bool negative = 0;
 #endif
-#if defined(USE_PERL_ATOF) && !defined(USE_QUADMATH)
+#if defined(USE_PERL_ATOF) && !defined(Perl_strtod)
     UV accumulator[2] = {0,0};	/* before/after dp */
     bool seen_digit = 0;
     I32 exp_adjust[2] = {0,0};
@@ -1421,7 +1421,7 @@ Perl_my_atof3(pTHX_ const char* orig, NV* value, STRLEN len)
     I32 sig_digits = 0; /* noof significant digits seen so far */
 #endif
 
-#if defined(USE_PERL_ATOF) || defined(USE_QUADMATH)
+#if defined(USE_PERL_ATOF) || defined(Perl_strtod)
     PERL_ARGS_ASSERT_MY_ATOF3;
 
     /* leading whitespace */
@@ -1438,7 +1438,7 @@ Perl_my_atof3(pTHX_ const char* orig, NV* value, STRLEN len)
     }
 #endif
 
-#ifdef USE_QUADMATH
+#ifdef Perl_strtod
     {
         char* endp;
         char* copy = NULL;
@@ -1456,7 +1456,22 @@ Perl_my_atof3(pTHX_ const char* orig, NV* value, STRLEN len)
             s = copy + (s - orig);
         }
 
-        result[2] = strtoflt128(s, &endp);
+#  if defined(__MINGW64_VERSION_MAJOR) && defined(USE_LONG_DOUBLE)
+
+        /***********************************************
+         We are unable to use strtold because of
+          https://sourceforge.net/p/mingw-w64/bugs/711/
+          &
+          https://sourceforge.net/p/mingw-w64/bugs/725/
+
+         but __mingw_strtold is fine.
+         ***********************************************/
+
+        result[2] = __mingw_strtold(s, &endp);
+
+#  else
+        result[2] = Perl_strtod(s, &endp);
+#  endif
 
         /* If we created a copy, 'endp' is in terms of that.  Convert back to
          * the original */
